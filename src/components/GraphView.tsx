@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { ReactFlow, Background, Controls, Node, Edge } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { IRGraph } from '../../types';
+import { IRGraph } from '../types';
 
 interface GraphViewProps {
   ir: IRGraph | null;
