@@ -1,0 +1,6 @@
+{
+  "name": "API TaskApp Compiler Studio",
+  "description": "An operational API compiler that treats APIs as capability graphs and synthesizes deterministic, purpose-built internal tools for device management and task automation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
