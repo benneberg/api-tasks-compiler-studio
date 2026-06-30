@@ -38,7 +38,7 @@ export function planWorkflow(intent: IntentGraph, ncg: NCG): WorkflowPlan {
   return { steps };
 }
 
-export function buildIR(plan: WorkflowPlan, ncg: NCG, originalGoal: string): IRGraph {
+export function buildIR(plan: WorkflowPlan, ncg: NCG, originalGoal: string, intent?: IntentGraph): IRGraph {
   const nodes: IRNode[] = [];
   const edges: IREdge[] = [];
 
@@ -64,13 +64,23 @@ export function buildIR(plan: WorkflowPlan, ncg: NCG, originalGoal: string): IRG
 
     if (step.type === 'query' && step.entityId) {
       const entity = ncg.entities.find(e => e.id === step.entityId);
-      node.config = { entityId: step.entityId, endpoint: entity?.endpoints.list };
+      const queryParams = intent?.parameters?.filter(p => p.actionId === step.id) || [];
+      node.config = { 
+        entityId: step.entityId, 
+        endpoint: entity?.endpoints.list,
+        parameters: queryParams
+      };
       node.outputs = { type: 'array', itemSchemaRef: step.entityId };
     }
 
     if (step.type === 'mutation' && step.actionId) {
       const action = ncg.actions.find(a => a.id === step.actionId);
-      node.config = { actionId: step.actionId, action };
+      const actionParams = intent?.parameters?.filter(p => p.actionId === step.actionId) || [];
+      node.config = { 
+        actionId: step.actionId, 
+        action,
+        parameters: actionParams
+      };
       node.inputs = { type: 'array', itemSchemaRef: action?.targetEntity };
     }
 

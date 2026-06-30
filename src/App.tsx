@@ -23,6 +23,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { useStudioStore } from './store';
 import { GraphView } from './components/GraphView';
+import { diffNcgs } from './lib/compiler/diff';
 
 const DEFAULT_SPEC = `openapi: 3.0.0
 info:
@@ -55,7 +56,14 @@ export default function App() {
     compile,
     reset,
     model,
-    setModel
+    setModel,
+    sourceSpec,
+    compiledNcg,
+    stagingIntent,
+    hasConfirmedIntent,
+    updateStagingParameter,
+    finalizeIntent,
+    syncCompiledNcg
   } = useStudioStore();
 
   const [activeTab, setActiveTab] = useState<'INGEST' | 'INTENT' | 'COMPILE' | 'TEST' | 'LAB' | 'PREVIEW'>('INGEST');
@@ -85,7 +93,6 @@ export default function App() {
 
   const handleCompile = async () => {
     await compile();
-    updateTab('COMPILE');
   };
 
   const isReachable = (tab: typeof activeTab) => {
@@ -219,28 +226,147 @@ export default function App() {
                 </div>
 
                 <div className="border border-zinc-200">
-                  <div className="bg-zinc-50 px-4 py-2 border-b flex items-center gap-2">
-                    <Database size={14} className="text-zinc-400" />
-                    <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">SCHEMA SOURCE ENDPOINT</span>
+                  <div className="bg-zinc-50 px-4 py-2 border-b flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Database size={14} className="text-zinc-400" />
+                      <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">OPENAPI SOURCE SPECIFICATION</span>
+                    </div>
+                    <span className="text-[8px] font-mono bg-zinc-200 text-zinc-700 px-1.5 py-0.5 uppercase tracking-tighter">YAML/JSON</span>
                   </div>
                   <div className="p-4">
-                    <input 
-                      type="text" 
-                      defaultValue="https://petstore.signageos.io/api/v2" 
-                      className="w-full font-mono text-sm bg-transparent border-none focus:outline-none"
+                    <textarea 
+                      value={sourceSpec}
+                      disabled={isReadOnly}
+                      onChange={(e) => ingestSpec(e.target.value)}
+                      placeholder="Paste OpenAPI spec here..."
+                      className="w-full h-48 p-4 font-mono text-xs bg-white border border-zinc-200 focus:outline-none resize-y"
                     />
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 py-2">
+                <div className="flex items-center gap-3 py-1">
                   <input type="checkbox" defaultChecked className="w-5 h-5 accent-brutal-blue border-2 border-black rounded-none" />
                   <span className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-widest">ENABLE HEURISTIC AUTO-FIX ENGINE</span>
                 </div>
 
-                <button onClick={() => setActiveTab('INTENT')} className="brutal-button w-full text-sm py-5 font-black">
+                <button onClick={() => updateTab('INTENT')} className="brutal-button w-full text-sm py-5 font-black">
                   BUILD CAPABILITY GRAPH
                 </button>
               </div>
+
+              {/* Visual Diff for API Drift Detection */}
+              {(() => {
+                const driftDiff = diffNcgs(compiledNcg, ncg);
+                if (!driftDiff.hasDrift) return null;
+
+                return (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 15 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="border-2 border-amber-500 bg-amber-50/20 p-6 space-y-4 shadow-[4px_4px_0px_#f59e0b]"
+                  >
+                    <div className="flex items-center gap-2.5 text-amber-600">
+                      <AlertCircle size={18} />
+                      <span className="font-mono text-xs font-black uppercase tracking-wider">API Schema Drift Detected</span>
+                    </div>
+                    
+                    <p className="text-xs text-zinc-600 font-serif leading-relaxed italic">
+                      The current OpenAPI spec in the editor differs from the compiled baseline. Inspect the specific changes below:
+                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                      {/* Baseline */}
+                      <div className="border border-zinc-200 bg-white p-4 space-y-2">
+                        <h4 className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Compiled Baseline</h4>
+                        <div className="space-y-1 text-[11px] font-mono">
+                          <div className="text-zinc-500">Entities ({compiledNcg?.entities.length || 0}):</div>
+                          <div className="flex flex-wrap gap-1">
+                            {compiledNcg?.entities.map(e => (
+                              <span key={e.id} className="bg-zinc-100 px-1.5 py-0.5 border text-zinc-700 text-[10px] rounded-sm">{e.name}</span>
+                            ))}
+                          </div>
+                          <div className="text-zinc-500 pt-1">Actions ({compiledNcg?.actions.length || 0}):</div>
+                          <div className="text-zinc-700 max-h-32 overflow-y-auto space-y-1 pr-1">
+                            {compiledNcg?.actions.map(a => (
+                              <div key={a.id} className="truncate text-[9px] bg-zinc-50 p-1 border border-zinc-100">{a.name}</div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Drift Differences */}
+                      <div className="border border-amber-200 bg-white p-4 space-y-2">
+                        <h4 className="text-[10px] font-mono font-bold text-amber-600 uppercase tracking-wider">Detected Modifications</h4>
+                        
+                        <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
+                          {/* Entity Changes */}
+                          {(driftDiff.entities.added.length > 0 || driftDiff.entities.removed.length > 0 || driftDiff.entities.modified.length > 0) && (
+                            <div className="space-y-1.5">
+                              <div className="text-[9px] font-mono font-bold text-zinc-400 uppercase">Entities:</div>
+                              {driftDiff.entities.added.map(name => (
+                                <div key={name} className="flex items-center gap-1.5 text-xs text-emerald-600 font-mono">
+                                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                                  <span>Added: <strong className="font-bold">{name}</strong></span>
+                                </div>
+                              ))}
+                              {driftDiff.entities.removed.map(name => (
+                                <div key={name} className="flex items-center gap-1.5 text-xs text-red-600 font-mono">
+                                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                                  <span>Removed: <strong className="font-bold">{name}</strong></span>
+                                </div>
+                              ))}
+                              {driftDiff.entities.modified.map(m => (
+                                <div key={m.id} className="text-xs text-amber-700 font-mono space-y-0.5 border-l-2 border-amber-300 pl-2">
+                                  <div className="font-bold">Modified: {m.id}</div>
+                                  {m.changes.map((c, idx) => (
+                                    <div key={idx} className="text-[10px] text-zinc-600 pl-2">↳ {c}</div>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Action Changes */}
+                          {(driftDiff.actions.added.length > 0 || driftDiff.actions.removed.length > 0 || driftDiff.actions.modified.length > 0) && (
+                            <div className="space-y-1.5 pt-2 border-t border-dashed border-zinc-200">
+                              <div className="text-[9px] font-mono font-bold text-zinc-400 uppercase">Actions:</div>
+                              {driftDiff.actions.added.map(name => (
+                                <div key={name} className="flex items-center gap-1.5 text-xs text-emerald-600 font-mono">
+                                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                                  <span>Added: <strong className="font-bold">{name}</strong></span>
+                                </div>
+                              ))}
+                              {driftDiff.actions.removed.map(name => (
+                                <div key={name} className="flex items-center gap-1.5 text-xs text-red-600 font-mono">
+                                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                                  <span>Removed: <strong className="font-bold">{name}</strong></span>
+                                </div>
+                              ))}
+                              {driftDiff.actions.modified.map(m => (
+                                <div key={m.id} className="text-xs text-amber-700 font-mono space-y-0.5 border-l-2 border-amber-300 pl-2">
+                                  <div className="font-bold">Modified: {m.id}</div>
+                                  {m.changes.map((c, idx) => (
+                                    <div key={idx} className="text-[10px] text-zinc-600 pl-2">↳ {c}</div>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 flex justify-end">
+                      <button 
+                        onClick={syncCompiledNcg}
+                        className="px-4 py-2 bg-amber-500 text-white font-mono text-[10px] font-bold uppercase shadow-[2px_2px_0px_#92400e] hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
+                      >
+                        Accept Changes & Sync Baseline
+                      </button>
+                    </div>
+                  </motion.div>
+                );
+              })()}
 
               <div className="brutal-card p-6 space-y-4">
                 <div className="flex items-center gap-2">
@@ -344,6 +470,85 @@ export default function App() {
                     </div>
                   </motion.div>
                 )}
+
+                {/* AI suggested action parameter calibration staging area */}
+                {stagingIntent && !hasConfirmedIntent && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 15 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="border-2 border-brutal-blue bg-[#FCFDFF] p-6 space-y-6 shadow-[4px_4px_0px_#2563eb] mt-6"
+                  >
+                    <div className="space-y-1">
+                      <h3 className="font-serif text-2xl italic flex items-center gap-2">
+                        <Settings size={18} className="text-brutal-blue animate-spin" style={{ animationDuration: '6s' }} />
+                        Action Parameter Calibration
+                      </h3>
+                      <p className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-widest">
+                        Verify or modify AI's suggested parameters before final compilation
+                      </p>
+                    </div>
+
+                    <div className="space-y-4">
+                      {stagingIntent.actions.map(actionId => {
+                        const action = ncg?.actions.find(a => a.id === actionId);
+                        const params = stagingIntent.parameters?.filter(p => p.actionId === actionId) || [];
+
+                        return (
+                          <div key={actionId} className="border border-zinc-200 bg-white p-4 space-y-3">
+                            <div className="flex items-center justify-between border-b pb-2">
+                              <span className="text-[10px] font-mono font-bold text-zinc-700 uppercase">
+                                Action: <strong className="text-brutal-blue">{action?.name || actionId}</strong>
+                              </span>
+                              <span className="text-[8px] font-mono bg-zinc-200 text-zinc-600 px-1.5 py-0.5 font-bold uppercase">
+                                {action?.method || 'POST'}
+                              </span>
+                            </div>
+
+                            {params.length === 0 ? (
+                              <p className="text-[10px] font-mono font-bold text-zinc-400 uppercase italic">
+                                No parameters require configuration
+                              </p>
+                            ) : (
+                              <div className="space-y-3 text-left">
+                                {params.map(p => (
+                                  <div key={p.paramName} className="space-y-1">
+                                    <label className="flex items-center justify-between text-[10px] font-mono font-bold text-zinc-500 uppercase">
+                                      <span>{p.paramName} <span className="text-zinc-400 font-normal">[{p.in}]</span></span>
+                                      {p.in === 'path' && <span className="text-amber-500 lowercase text-[9px]">required</span>}
+                                    </label>
+                                    
+                                    <input 
+                                      type="text"
+                                      value={p.suggestedValue}
+                                      onChange={(e) => updateStagingParameter(actionId, p.paramName, e.target.value)}
+                                      className="w-full text-xs font-mono bg-white border-2 border-black p-2 focus:outline-none focus:border-brutal-blue"
+                                      placeholder="Enter value..."
+                                    />
+                                    
+                                    <p className="text-[10px] text-zinc-500 font-serif italic leading-tight">
+                                      AI Explanation: {p.description}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <button 
+                      onClick={() => {
+                        finalizeIntent();
+                        updateTab('COMPILE');
+                      }}
+                      className="brutal-button brutal-button-blue w-full py-4 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2"
+                    >
+                      <Zap size={14} fill="white" />
+                      CONFIRM & FINALIZE INTENT GRAPH
+                    </button>
+                  </motion.div>
+                )}
               </div>
             </motion.div>
           )}
@@ -376,6 +581,17 @@ export default function App() {
                               <span className="text-[8px] font-mono text-zinc-400">0x{i.toString(16).padStart(2, '0')}</span>
                             </div>
                             <div className="text-[11px] font-bold uppercase truncate">{node.id}</div>
+                            {node.config.parameters && node.config.parameters.length > 0 && (
+                              <div className="mt-2 pt-2 border-t border-zinc-100 space-y-1">
+                                <div className="text-[8px] font-mono text-zinc-400 font-bold uppercase">Configured Parameters:</div>
+                                {node.config.parameters.map((p: any) => (
+                                  <div key={p.paramName} className="flex justify-between font-mono text-[9px] text-zinc-600 bg-zinc-50 px-1.5 py-0.5 border border-zinc-100">
+                                    <span>{p.paramName}:</span>
+                                    <span className="font-bold text-black">{p.suggestedValue}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}

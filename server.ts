@@ -80,12 +80,15 @@ async function startServer() {
           name: e.name, 
           actions: ncg.actions.filter((a: any) => a.targetEntity === e.id).map((a: any) => ({
             id: a.id,
-            name: a.name
+            name: a.name,
+            parameters: a.endpoint?.parameters || []
           }))
         })))}
         
         Extract a structured intent graph. 
-        CRITICAL: The "entities" and "actions" arrays MUST ONLY contain IDs that exist in the NCG provided above. Do not invent new IDs.`,
+        CRITICAL Rules:
+        1. The "entities" and "actions" arrays MUST ONLY contain IDs that exist in the NCG provided above. Do not invent new IDs.
+        2. Identify which action parameters (from the parameters lists provided in NCG actions above) are relevant to satisfy the user goal. For each identified parameter, suggest a logical "suggestedValue" based on the user's operational goal and provide a clear, concise "description" justifying this choice. Ensure to output a flat list of parameter suggestions in the "parameters" field.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -95,8 +98,22 @@ async function startServer() {
               entities: { type: Type.ARRAY, items: { type: Type.STRING } },
               actions: { type: Type.ARRAY, items: { type: Type.STRING } },
               constraints: { type: Type.ARRAY, items: { type: Type.STRING } },
+              parameters: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    actionId: { type: Type.STRING },
+                    paramName: { type: Type.STRING },
+                    in: { type: Type.STRING },
+                    suggestedValue: { type: Type.STRING },
+                    description: { type: Type.STRING }
+                  },
+                  required: ["actionId", "paramName", "in", "suggestedValue", "description"]
+                }
+              }
             },
-            required: ["goal", "entities", "actions", "constraints"],
+            required: ["goal", "entities", "actions", "constraints", "parameters"],
           },
         },
       });

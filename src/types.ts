@@ -175,11 +175,20 @@ export type IREdge = {
 
 // --- Intent and Plan ---
 
+export type ActionParameterSuggestion = {
+  actionId: string;
+  paramName: string;
+  in: 'path' | 'query' | 'header' | 'body';
+  suggestedValue: string;
+  description: string;
+};
+
 export type IntentGraph = {
   goal: string;
   entities: string[];
   actions: string[];
   constraints: string[];
+  parameters?: ActionParameterSuggestion[];
 };
 
 export type WorkflowPlan = {

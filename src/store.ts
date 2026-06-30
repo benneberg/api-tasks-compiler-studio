@@ -15,6 +15,14 @@ interface StudioState {
   isRefining: boolean;
   error: string | null;
 
+  // Visual Diff/Drift detection
+  sourceSpec: string;
+  compiledNcg: NCG | null;
+
+  // Intent compilation staging
+  stagingIntent: IntentGraph | null;
+  hasConfirmedIntent: boolean;
+
   // Actions
   setGoal: (goal: string) => void;
   ingestSpec: (content: string) => void;
@@ -22,6 +30,9 @@ interface StudioState {
   applyRefinedGoal: (goal: string) => void;
   setModel: (model: string) => void;
   compile: () => Promise<void>;
+  finalizeIntent: () => void;
+  updateStagingParameter: (actionId: string, paramName: string, value: string) => void;
+  syncCompiledNcg: () => void;
   reset: () => void;
 }
 
@@ -37,6 +48,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   isRefining: false,
   error: null,
 
+  sourceSpec: "",
+  compiledNcg: null,
+  stagingIntent: null,
+  hasConfirmedIntent: false,
+
   setGoal: (goal) => set({ goal }),
 
   setModel: (model) => set({ model }),
@@ -44,7 +60,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   ingestSpec: (content) => {
     try {
       const ncg = ingestOpenApi(content);
-      set({ ncg, error: null });
+      const { compiledNcg } = get();
+      set({ 
+        ncg, 
+        sourceSpec: content, 
+        compiledNcg: compiledNcg ? compiledNcg : ncg, 
+        error: null 
+      });
     } catch (e: any) {
       set({ error: "Failed to ingest OpenAPI spec: " + e.message });
     }
@@ -85,7 +107,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return;
     }
 
-    set({ isCompiling: true, error: null });
+    set({ isCompiling: true, error: null, stagingIntent: null, hasConfirmedIntent: false });
 
     try {
       // 1. Get Intent from API
@@ -96,19 +118,70 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       });
 
       if (!response.ok) throw new Error("Failed to compile intent");
-      const intent: IntentGraph = await response.json();
+      const stagingIntent: IntentGraph = await response.json();
 
-      // 2. Plan Deterministically
-      const plan = planWorkflow(intent, ncg);
-
-      // 3. Build IR
-      const ir = buildIR(plan, ncg, goal);
-
-      set({ intent, plan, ir, isCompiling: false });
+      set({ stagingIntent, isCompiling: false });
     } catch (e: any) {
       set({ error: "Compilation failed: " + e.message, isCompiling: false });
     }
   },
 
-  reset: () => set({ ncg: null, intent: null, plan: null, ir: null, goal: "", error: null })
+  finalizeIntent: () => {
+    const { stagingIntent, ncg, goal } = get();
+    if (!stagingIntent || !ncg) {
+      set({ error: "Staging intent and NCG are required to finalize" });
+      return;
+    }
+
+    // 2. Plan Deterministically
+    const plan = planWorkflow(stagingIntent, ncg);
+
+    // 3. Build IR
+    const ir = buildIR(plan, ncg, goal, stagingIntent);
+
+    set({ 
+      intent: stagingIntent, 
+      plan, 
+      ir, 
+      compiledNcg: ncg, // Synchronize the baseline compiled schema upon finalization
+      hasConfirmedIntent: true 
+    });
+  },
+
+  updateStagingParameter: (actionId, paramName, value) => {
+    const { stagingIntent } = get();
+    if (!stagingIntent) return;
+
+    const updatedParams = stagingIntent.parameters?.map(p => {
+      if (p.actionId === actionId && p.paramName === paramName) {
+        return { ...p, suggestedValue: value };
+      }
+      return p;
+    }) || [];
+
+    set({
+      stagingIntent: {
+        ...stagingIntent,
+        parameters: updatedParams
+      }
+    });
+  },
+
+  syncCompiledNcg: () => {
+    const { ncg } = get();
+    if (ncg) {
+      set({ compiledNcg: ncg });
+    }
+  },
+
+  reset: () => set({ 
+    ncg: null, 
+    intent: null, 
+    plan: null, 
+    ir: null, 
+    goal: "", 
+    error: null, 
+    stagingIntent: null, 
+    hasConfirmedIntent: false 
+  })
 }));
