@@ -1,20 +1,16 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# API2UI Studio
 
-# Run and deploy your AI Studio app
+API2UI Studio is a deterministic, schema-constrained compiler that transforms REST and Event-driven API specifications into safe, transaction-controlled micro-interfaces (jdCards) using server-side intent extraction and interactive parameter validation.
 
-This contains everything you need to run your app locally.
+## Key Features
+*   **Live Re-Compilation Loop**: Ingests, normalizes, and links OpenAPI, AsyncAPI, or raw HTTP traffic specifications into a structural Normalized Capability Graph (NCG).
+*   **Visual Drift & Schema Diff**: Detects schema changes between active edits and the compiled baseline, prompting users to review additions, removals, or parameter mutations.
+*   **AI-Assisted Intent Compiler**: Uses Gemini (`gemini-3.5-flash`) via a secure Express proxy to map user goals to target endpoints, suggesting logical query and path parameters.
+*   **Visual Staging Area**: Inspect, edit, and confirm AI-suggested parameters before final compilation, keeping operations fully safe and deterministic.
+*   **Interactive DAG Viewer**: Visualizes the planned steps, entities, and parameter bindings as a connected Directed Acyclic Graph.
 
-View your app in AI Studio: https://ai.studio/apps/86cdafa0-0d80-46bd-9e35-6a0f2449ec0e
+## Quick Start & Installation
 
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### 1. Install Dependencies
+```bash
+npm install
