@@ -288,11 +288,21 @@ export function ingestSpec(specContent: string, format: SpecFormat = 'auto'): NC
     });
   });
 
+  function computeFingerprint(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash |= 0;
+    }
+    return `fp_${Math.abs(hash).toString(16)}_${str.length}`;
+  }
+
   return {
     entities,
     actions,
     relations,
     authSchemes,
-    fingerprint: btoa(specContent.slice(0, 100)).substring(0, 32)
+    fingerprint: computeFingerprint(specContent)
   };
 }

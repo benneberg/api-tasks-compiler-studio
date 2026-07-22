@@ -2,6 +2,9 @@ import { create } from "zustand";
 import { NCG, IntentGraph, WorkflowPlan, IRGraph, GoalRefinement } from "./types";
 import { ingestOpenApi } from "./lib/compiler/ingestor";
 import { planWorkflow, buildIR } from "./lib/compiler/planner";
+import { buildJdCardArtifact, JdCardArtifact } from "./lib/compiler/export";
+
+export type ThemePreset = 'brutal' | 'dark' | 'cyberpunk';
 
 interface StudioState {
   ncg: NCG | null;
@@ -11,6 +14,7 @@ interface StudioState {
   goal: string;
   refinement: GoalRefinement | null;
   model: string;
+  themePreset: ThemePreset;
   isCompiling: boolean;
   isRefining: boolean;
   error: string | null;
@@ -23,17 +27,43 @@ interface StudioState {
   stagingIntent: IntentGraph | null;
   hasConfirmedIntent: boolean;
 
+  // Saved jdCard Micro-Apps
+  savedCards: JdCardArtifact[];
+
   // Actions
   setGoal: (goal: string) => void;
   ingestSpec: (content: string) => void;
   refineGoal: () => Promise<void>;
   applyRefinedGoal: (goal: string) => void;
   setModel: (model: string) => void;
+  setThemePreset: (preset: ThemePreset) => void;
   compile: () => Promise<void>;
   finalizeIntent: () => void;
   updateStagingParameter: (actionId: string, paramName: string, value: string) => void;
   syncCompiledNcg: () => void;
+  saveCurrentCard: (title?: string) => JdCardArtifact | null;
+  deleteSavedCard: (id: string) => void;
+  loadSavedCard: (card: JdCardArtifact) => void;
   reset: () => void;
+}
+
+const STORAGE_KEY = "api2ui_saved_jdcards";
+
+function loadCardsFromStorage(): JdCardArtifact[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCardsToStorage(cards: JdCardArtifact[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cards));
+  } catch (e) {
+    console.error("Failed to save to localStorage", e);
+  }
 }
 
 export const useStudioStore = create<StudioState>((set, get) => ({
@@ -44,6 +74,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   goal: "",
   refinement: null,
   model: "gemini-3.5-flash",
+  themePreset: 'brutal',
   isCompiling: false,
   isRefining: false,
   error: null,
@@ -52,10 +83,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   compiledNcg: null,
   stagingIntent: null,
   hasConfirmedIntent: false,
+  savedCards: loadCardsFromStorage(),
 
   setGoal: (goal) => set({ goal }),
 
   setModel: (model) => set({ model }),
+
+  setThemePreset: (themePreset) => set({ themePreset }),
 
   ingestSpec: (content) => {
     try {
@@ -172,6 +206,34 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     if (ncg) {
       set({ compiledNcg: ncg });
     }
+  },
+
+  saveCurrentCard: (title) => {
+    const { ir, intent, savedCards } = get();
+    if (!ir) {
+      set({ error: "No compiled IR available to save as jdCard artifact." });
+      return null;
+    }
+    const card = buildJdCardArtifact(ir, intent, title || ir.metadata.originalGoal || "Compiled jdCard");
+    const updated = [card, ...savedCards.filter(c => c.id !== card.id)];
+    saveCardsToStorage(updated);
+    set({ savedCards: updated });
+    return card;
+  },
+
+  deleteSavedCard: (id) => {
+    const { savedCards } = get();
+    const updated = savedCards.filter(c => c.id !== id);
+    saveCardsToStorage(updated);
+    set({ savedCards: updated });
+  },
+
+  loadSavedCard: (card) => {
+    set({
+      goal: card.contracts.inboundIntent,
+      hasConfirmedIntent: true,
+      error: null
+    });
   },
 
   reset: () => set({ 

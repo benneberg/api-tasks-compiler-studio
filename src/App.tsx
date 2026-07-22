@@ -18,12 +18,24 @@ import {
   Redo2,
   Plus,
   Eye,
-  EyeOff
+  EyeOff,
+  Download,
+  Trash2,
+  FolderOpen,
+  Palette,
+  X,
+  Code2,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useStudioStore } from './store';
+import { useStudioStore, ThemePreset } from './store';
 import { GraphView } from './components/GraphView';
 import { diffNcgs } from './lib/compiler/diff';
+import { 
+  buildJdCardArtifact, 
+  downloadJdCardJson, 
+  downloadReactBundle 
+} from './lib/compiler/export';
 
 const DEFAULT_SPEC = `openapi: 3.0.0
 info:
@@ -44,6 +56,7 @@ export default function App() {
   const { 
     ncg, 
     ir, 
+    intent,
     goal, 
     refinement,
     isCompiling, 
@@ -57,6 +70,12 @@ export default function App() {
     reset,
     model,
     setModel,
+    themePreset,
+    setThemePreset,
+    savedCards,
+    saveCurrentCard,
+    deleteSavedCard,
+    loadSavedCard,
     sourceSpec,
     compiledNcg,
     stagingIntent,
@@ -72,6 +91,13 @@ export default function App() {
   const [openRouterKey, setOpenRouterKey] = useState('');
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [projectTitle, setProjectTitle] = useState('Untitled Project');
+  const [showSavedModal, setShowSavedModal] = useState(false);
+  const [notification, setNotification] = useState<string | null>(null);
+
+  const triggerNotification = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 3000);
+  };
 
   const updateTab = (tab: typeof activeTab) => {
     setActiveTab(tab);
@@ -101,7 +127,11 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F2F2F2] text-black font-sans selection:bg-brutal-blue/30 overflow-x-hidden">
+    <div className={`min-h-screen font-sans transition-colors duration-200 overflow-x-hidden ${
+      themePreset === 'dark' ? 'bg-zinc-950 text-zinc-100 selection:bg-blue-500/30' :
+      themePreset === 'cyberpunk' ? 'bg-yellow-300 text-black selection:bg-fuchsia-500/30' :
+      'bg-[#F2F2F2] text-black selection:bg-brutal-blue/30'
+    }`}>
       {/* Top Utility Header */}
       <header className="bg-white border-b-2 border-black px-4 py-3 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-50">
         <div className="flex items-center gap-3">
@@ -122,7 +152,21 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-2 sm:gap-3">
+           {/* Theme Preset Selector */}
+           <div className="hidden sm:flex items-center gap-1.5 border-2 border-black px-2.5 py-1.5 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+             <Palette size={14} className="text-zinc-500" />
+             <select 
+               value={themePreset}
+               onChange={(e) => setThemePreset(e.target.value as ThemePreset)}
+               className="text-[10px] font-mono font-bold bg-transparent border-none focus:outline-none uppercase tracking-tighter"
+             >
+               <option value="brutal">Brutal Light</option>
+               <option value="dark">Tech Dark</option>
+               <option value="cyberpunk">Cyberpunk</option>
+             </select>
+           </div>
+
            <div className="hidden lg:flex items-center gap-2 border-2 border-black px-3 py-1.5 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
              <Cpu size={14} className="text-zinc-400" />
              <select 
@@ -135,6 +179,15 @@ export default function App() {
                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
              </select>
            </div>
+
+           <button 
+             onClick={() => setShowSavedModal(true)}
+             title="View Saved Micro-Apps"
+             className="flex items-center gap-1.5 border-2 border-black px-3 py-2 bg-amber-400 text-black text-[10px] font-mono font-bold uppercase shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] transition-all active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+           >
+              <FolderOpen size={14} />
+              <span className="hidden md:inline">SAVED_CARDS ({savedCards.length})</span>
+           </button>
            
            <button 
              onClick={handleReset}
@@ -607,6 +660,48 @@ export default function App() {
                   </div>
                 )}
 
+                {ir && ir.nodes.length > 0 && (
+                  <div className="pt-2 border-t-2 border-dashed border-zinc-200 space-y-2">
+                    <div className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-widest">EXPORT & PERSIST JDCARD</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button 
+                        onClick={() => {
+                          const card = saveCurrentCard(projectTitle);
+                          if (card) triggerNotification("Saved jdCard to LocalStorage Library!");
+                        }}
+                        className="flex items-center justify-center gap-1.5 border-2 border-black bg-amber-400 text-black px-3 py-2 text-[10px] font-mono font-bold uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-1px] hover:translate-y-[-1px] transition-all"
+                      >
+                        <Save size={12} />
+                        SAVE TO LIBRARY
+                      </button>
+
+                      <button 
+                        onClick={() => {
+                          const artifact = buildJdCardArtifact(ir, intent, projectTitle);
+                          downloadJdCardJson(artifact);
+                          triggerNotification("Downloaded jdCard JSON Package!");
+                        }}
+                        className="flex items-center justify-center gap-1.5 border-2 border-black bg-white text-black px-3 py-2 text-[10px] font-mono font-bold uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-1px] hover:translate-y-[-1px] transition-all"
+                      >
+                        <Download size={12} />
+                        EXPORT JSON
+                      </button>
+
+                      <button 
+                        onClick={() => {
+                          const artifact = buildJdCardArtifact(ir, intent, projectTitle);
+                          downloadReactBundle(artifact);
+                          triggerNotification("Exported React Component (.tsx) Bundle!");
+                        }}
+                        className="flex items-center justify-center gap-1.5 border-2 border-black bg-brutal-blue text-white px-3 py-2 text-[10px] font-mono font-bold uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-1px] hover:translate-y-[-1px] transition-all"
+                      >
+                        <Code2 size={12} />
+                        EXPORT REACT BUNDLE
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex gap-4">
                   <button 
                     onClick={() => updateTab('INTENT')}
@@ -759,6 +854,135 @@ export default function App() {
             )}
           </div>
         )}
+
+        {/* Notification Toast */}
+        <AnimatePresence>
+          {notification && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="fixed bottom-14 right-6 z-50 bg-black text-white px-4 py-3 border-2 border-white shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] flex items-center gap-3 font-mono text-xs font-bold"
+            >
+              <Check size={16} className="text-emerald-400" />
+              <span>{notification}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Saved Micro-Apps (jdCards) Modal */}
+        <AnimatePresence>
+          {showSavedModal && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            >
+              <div className="bg-white text-black border-4 border-black p-6 w-full max-w-2xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] space-y-6 max-h-[85vh] overflow-y-auto">
+                <div className="flex items-center justify-between border-b-2 border-black pb-3">
+                  <div className="flex items-center gap-2">
+                    <FolderOpen size={20} className="text-amber-500" />
+                    <h3 className="font-serif text-2xl italic font-bold">Compiled micro-apps (jdCards)</h3>
+                  </div>
+                  <button 
+                    onClick={() => setShowSavedModal(false)}
+                    className="p-1 border-2 border-black bg-zinc-100 hover:bg-zinc-200"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {savedCards.length === 0 ? (
+                  <div className="p-12 border-2 border-dashed border-zinc-300 text-center space-y-2">
+                    <Layers size={32} className="mx-auto text-zinc-300" />
+                    <p className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-widest">
+                      No saved micro-apps found in LocalStorage.
+                    </p>
+                    <p className="text-[11px] text-zinc-500">
+                      Compile an OpenAPI goal in Stage 03 and click 'Save to Library'.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {savedCards.map(card => (
+                      <div key={card.id} className="border-2 border-black p-4 bg-zinc-50 space-y-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="text-[9px] font-mono font-bold text-amber-600 uppercase tracking-widest">
+                              ID: {card.id} • {new Date(card.metadata.compiledAt).toLocaleString()}
+                            </div>
+                            <h4 className="font-bold text-base">{card.metadata.title}</h4>
+                            <p className="text-xs text-zinc-600 font-mono mt-0.5">
+                              Intent: "{card.contracts.inboundIntent}"
+                            </p>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              deleteSavedCard(card.id);
+                              triggerNotification("Deleted micro-app from library.");
+                            }}
+                            className="text-red-500 p-1.5 border border-red-200 hover:border-black hover:bg-red-50 transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-200">
+                          <span className="text-[9px] font-mono bg-zinc-200 px-2 py-0.5 font-bold uppercase">
+                            Nodes: {Object.keys(card.executionGraph).length}
+                          </span>
+
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => {
+                                downloadJdCardJson(card);
+                                triggerNotification(`Downloaded ${card.id}.json`);
+                              }}
+                              className="border-2 border-black bg-white px-2.5 py-1 text-[10px] font-mono font-bold uppercase hover:bg-zinc-100"
+                            >
+                              JSON
+                            </button>
+                            <button 
+                              onClick={() => {
+                                downloadReactBundle(card);
+                                triggerNotification(`Exported ${card.id} React Bundle`);
+                              }}
+                              className="border-2 border-black bg-brutal-blue text-white px-2.5 py-1 text-[10px] font-mono font-bold uppercase hover:bg-blue-700"
+                            >
+                              React .TSX
+                            </button>
+                            <button 
+                              onClick={() => {
+                                loadSavedCard(card);
+                                setShowSavedModal(false);
+                                updateTab('INTENT');
+                                triggerNotification(`Loaded "${card.metadata.title}" into workspace`);
+                              }}
+                              className="border-2 border-black bg-amber-400 text-black px-3 py-1 text-[10px] font-mono font-bold uppercase hover:bg-amber-300"
+                            >
+                              LOAD WORKSPACE
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-2 border-t-2 border-black">
+                  <button 
+                    onClick={() => setShowSavedModal(false)}
+                    className="border-2 border-black px-6 py-2 bg-zinc-900 text-white font-mono text-xs font-bold uppercase"
+                  >
+                    CLOSE
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Mobile Sticky Footer Simulation */}
